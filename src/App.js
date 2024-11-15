@@ -5,6 +5,7 @@ import './App.css';
 
 function App() {
   const [xmlContent, setXmlContent] = useState('');
+  const [fileName, setFileName] = useState('output.xml');
 
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
@@ -18,7 +19,7 @@ function App() {
 
         const [titleRow, ...dataRows] = jsonData;
 
-        const xmlDoc = create({ version: '1.0', encoding: 'UTF-8' });
+        const xmlDoc = create({ version: '1.0', encoding: 'UTF-8', standalone: true });
         const root = xmlDoc.ele('DeclarationsRS', { VersionSchema: '1.0' });
 
         // Fixed Declarant section
@@ -37,7 +38,7 @@ function App() {
         const ajouterCertificats = root.ele('AjouterCertificats');
 
         // Generate Certificat elements for each row
-        dataRows.forEach(row => {
+        dataRows.forEach((row) => {
           const certificat = ajouterCertificats.ele('Certificat');
           const beneficiaire = certificat.ele('Beneficiaire');
 
@@ -45,22 +46,24 @@ function App() {
           const idTaxpayer = beneficiaire.ele('IdTaxpayer');
           const matriculeFiscal = idTaxpayer.ele('MatriculeFiscal');
           const typeIdentifiant = row[titleRow.indexOf('TYPE_IDENTIFIANT')];
-          
+
           matriculeFiscal.ele('TypeIdentifiant').txt(typeIdentifiant);
           matriculeFiscal.ele('Identifiant').txt(row[titleRow.indexOf('IDENTIFIANT')]);
-          matriculeFiscal.ele('CategorieContribuable').txt(row[titleRow.indexOf('CATEGORIE_CONTRIBUABLE')]);
 
-          // Add DATE_NAISSANCE only if TypeIdentifiant is not 1
-          if (typeIdentifiant !== '1') {
-            let dateNaissance = row[titleRow.indexOf('DATE_NAISSANCE')]; // Get value from Excel
-          
-            // Convert dateNaissance to string (if it's not already) and check if it's valid
-            if (dateNaissance && String(dateNaissance).trim() !== '') {
-              matriculeFiscal.ele('DATE_NAISSANCE').txt(dateNaissance); // Use the value from Excel
-            }
+          // Add DATE_NAISSANCE only if it's a valid date
+          const dateNaissanceIndex = titleRow.indexOf('DATE_NAISSANCE');
+          const dateValue = row[dateNaissanceIndex];
+          if (typeof dateValue === 'number') {
+            const parsedDate = XLSX.SSF.parse_date_code(dateValue);
+            const formattedDate = `${String(parsedDate.d).padStart(2, '0')}/${String(parsedDate.m).padStart(2, '0')}/${parsedDate.y}`;
+            matriculeFiscal.ele('DATE_NAISSANCE').txt(formattedDate);
+          } else if (dateValue && dateValue.trim() !== '') {
+            matriculeFiscal.ele('DATE_NAISSANCE').txt(dateValue);
           }
 
-          beneficiaire.ele('Resident').txt(row[titleRow.indexOf('Resident')]);
+          matriculeFiscal.ele('CategorieContribuable').txt(row[titleRow.indexOf('CATEGORIE_CONTRIBUABLE')]);
+
+          beneficiaire.ele('Resident').txt(row[titleRow.indexOf('RESIDENT')]);
           beneficiaire.ele('NometprenonOuRaisonsociale').txt(row[titleRow.indexOf('NOM_PRENOM')]);
           beneficiaire.ele('Adresse').txt(row[titleRow.indexOf('ADRESSE')]);
           beneficiaire.ele('Activite').txt(row[titleRow.indexOf('ACTIVITé')]);
@@ -71,14 +74,33 @@ function App() {
           infosContact.ele('NumTel').txt(row[titleRow.indexOf('NUM_TEL')]);
 
           // Additional fields for Certificat
-          certificat.ele('DatePayement').txt(row[titleRow.indexOf('DATE_PAIEMNT')]);
+          const datePayementIndex = titleRow.indexOf('DATE_PAIEMNT');
+          const datePayementValue = row[datePayementIndex];
+          if (typeof datePayementValue === 'number') {
+            const parsedDatePayement = XLSX.SSF.parse_date_code(datePayementValue);
+            const formattedDatePayement = `${String(parsedDatePayement.d).padStart(2, '0')}/${String(parsedDatePayement.m).padStart(2, '0')}/${parsedDatePayement.y}`;
+            certificat.ele('DatePayement').txt(formattedDatePayement);
+          } else {
+            certificat.ele('DatePayement').txt(datePayementValue);
+          }
           certificat.ele('Ref_certif_chez_declarant').txt(row[titleRow.indexOf('REF_CERTF_CHEZ_DECLARANT')]);
 
           // ListeOperations section with dynamic IdTypeOperation attribute
           const listeOperations = certificat.ele('ListeOperations');
           const operationIdType = row[titleRow.indexOf('ID_NATURE_FK')];
           const operation = listeOperations.ele('Operation', { IdTypeOperation: operationIdType });
-          operation.ele('AnneeFacturation').txt(row[titleRow.indexOf('ANNE_FACTURATION')]);
+          const anneeFacturationIndex = titleRow.indexOf('ANNE_FACTURATION');
+          const anneeFacturationValue = row[anneeFacturationIndex];
+          if (typeof anneeFacturationValue === 'number') {
+            const parsedAnneeFacturation = XLSX.SSF.parse_date_code(anneeFacturationValue);
+            const year = parsedAnneeFacturation.y;
+            const month = String(parsedAnneeFacturation.m).padStart(2, '0');
+            operation.ele('AnneeFacturation').txt(`${year}-${month}`);
+            setFileName(`0002766B-${year}-${month}.xml`);
+          } else {
+            operation.ele('AnneeFacturation').txt(anneeFacturationValue);
+          }
+
           operation.ele('CNPC').txt('0');
           operation.ele('P_Charge').txt('0');
           operation.ele('MontantHT').txt(row[titleRow.indexOf('MONTANT_HT')]);
@@ -109,109 +131,49 @@ function App() {
     const blob = new Blob([xmlContent], { type: 'application/xml' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = 'output.xml';
+    link.download = fileName;
     link.click();
   };
 
   return (
-
     <div className="converter-container">
-    <h1>Excel to XML Converter</h1>
-  
-    {/* Show file upload only if XML content is not generated */}
-    {!xmlContent && (
-      <label htmlFor="file-upload" className="custom-file-upload">
-        Choose File
-      </label>
-    )}
-  
-    {/* Only render the file input when there's no xmlContent */}
-    {!xmlContent && (
-      <input 
-        type="file" 
-        id="file-upload" 
-        accept=".xlsx, .xls" 
-        onChange={handleFileUpload} 
-        style={{ display: 'none' }} // Hide the raw file input
-      />
-    )}
-  
-    {/* Show XML content and download option if XML content is generated */}
-    {xmlContent && (
-      <div>
-        <h2>Generated XML</h2>
-        <textarea 
-          rows="20" 
-          cols="80" 
-          value={xmlContent} 
-          readOnly
-        ></textarea>
-        <button onClick={downloadXML}>Download XML</button>
-  
-        {/* Show option to upload another file under the download button */}
-        <div style={{ marginTop: '20px' }}>
-          <label htmlFor="file-upload" className="custom-file-upload">
-            Upload another file
-          </label>
-          <input 
-            type="file" 
-            id="file-upload" 
-            accept=".xlsx, .xls" 
-            onChange={handleFileUpload} 
-            style={{ display: 'none' }} // Hide the raw file input
-          />
+      <h1>Excel to XML Converter</h1>
+      {!xmlContent && (
+        <label htmlFor="file-upload" className="custom-file-upload">
+          Choose File
+        </label>
+      )}
+      {!xmlContent && (
+        <input
+          type="file"
+          id="file-upload"
+          accept=".xlsx, .xls"
+          onChange={handleFileUpload}
+          style={{ display: 'none' }}
+        />
+      )}
+      {xmlContent && (
+        <div>
+          <h2>Generated XML</h2>
+          <textarea rows="20" cols="80" value={xmlContent} readOnly></textarea>
+          <button onClick={downloadXML}>Download XML</button>
+          <div style={{ marginTop: '20px' }}>
+            <label htmlFor="file-upload" className="custom-file-upload">
+              Upload another file
+            </label>
+            <input
+              type="file"
+              id="file-upload"
+              accept=".xlsx, .xls"
+              onChange={handleFileUpload}
+              style={{ display: 'none' }}
+            />
+          </div>
         </div>
-      </div>
-    )}
-  </div>
-  
-  
-
-//     <div className="converter-container">
-//       <h1>Excel to XML Converter</h1>
-
-
-
-
-// {!xmlContent && (
-//   <label htmlFor="file-upload" className="custom-file-upload">
-//     Choose File
-//   </label>
-// )}
-
-// <input 
-//   type="file" 
-//   id="file-upload" 
-//   accept=".xlsx, .xls" 
-//   onChange={handleFileUpload} 
-// />
-
-
-//       {xmlContent && (
-//         <div>
-//           <h2>Generated XML</h2>
-//           <textarea 
-//             rows="20" 
-//             cols="80" 
-//             value={xmlContent} 
-//             readOnly
-//           ></textarea>
-//           <button onClick={downloadXML}>Download XML</button>
-//         </div>
-//       )}
-//     </div>
+      )}
+    </div>
   );
 }
 
 export default App;
-
-
-
-
-
-
-
-
-
-
 
